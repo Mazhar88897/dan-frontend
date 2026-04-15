@@ -43,6 +43,7 @@ export default function SignInPage() {
       const token = body?.data?.token as string | undefined;
       const userId = body?.data?.user?.id as string | undefined;
       const verificationStatus = body?.data?.user?.verification_status as string | undefined;
+      const countryId = body?.data?.user?.country_id as string | undefined;
 
       if (!token || !userId) {
         throw new Error("Invalid login response");
@@ -51,6 +52,9 @@ export default function SignInPage() {
       if (typeof window !== "undefined") {
         window.sessionStorage.setItem("Authorization", `Bearer ${token}`);
         window.sessionStorage.setItem("UserId", userId);
+        if (countryId) {
+          window.sessionStorage.setItem("CountryId", countryId);
+        }
         if (verificationStatus) {
           window.sessionStorage.setItem("VerificationStatus", verificationStatus);
         }

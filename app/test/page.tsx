@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Image from 'next/image';
-import { countryCodeToFlag } from "@/utils/flag"
 import Link from 'next/link';
+import ReactCountryFlag from 'react-country-flag';
 
 type Category = {
   id: string;
@@ -39,6 +39,22 @@ const CATEGORY_STYLES: Record<string, { url: string; gradient: string }> = {
 };
 
 const DEFAULT_CATEGORY_STYLE = { url: '/global.png', gradient: 'from-slate-500 to-slate-600' };
+const MOBILE_INITIAL_CARDS = 3;
+
+function eventsApiUrl(path: string) {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return base ? `${base}${p}` : p;
+}
+
+function mergeActiveAndUpcoming(active: Event[], upcoming: Event[]): Event[] {
+  const map = new Map<string, Event>();
+  for (const e of active) map.set(e.id, e);
+  for (const e of upcoming) {
+    if (!map.has(e.id)) map.set(e.id, e);
+  }
+  return Array.from(map.values());
+}
 
 export default function TestPage() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -57,6 +73,12 @@ export default function TestPage() {
   const [completedLoading, setCompletedLoading] = useState(true);
   const [completedError, setCompletedError] = useState<string | null>(null);
 
+  const [activeEvents, setActiveEvents] = useState<Event[]>([]);
+  const [activeLoading, setActiveLoading] = useState(true);
+  const [activeError, setActiveError] = useState<string | null>(null);
+  const [showAllActiveMobile, setShowAllActiveMobile] = useState(false);
+  const [showAllUpcomingMobile, setShowAllUpcomingMobile] = useState(false);
+  const [showAllCombinedMobile, setShowAllCombinedMobile] = useState(false);
 
   useEffect(() => {
     // Only NEXT_PUBLIC_* vars are available in the browser.
@@ -71,8 +93,7 @@ export default function TestPage() {
   });
 
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
-    const url = `${baseUrl }/api/events/by-status?status=upcoming`;
+    const url = eventsApiUrl("/api/events/by-status?status=upcoming");
 
     fetch(url)
       .then((res) => {
@@ -84,10 +105,22 @@ export default function TestPage() {
       .finally(() => setEventsLoading(false));
   }, []);
 
+  useEffect(() => {
+    const url = eventsApiUrl("/api/events/by-status?status=active");
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load active events: ${res.status}`);
+        return res.json();
+      })
+      .then((data: Event[]) => setActiveEvents(Array.isArray(data) ? data : []))
+      .catch((err) => setActiveError(err?.message ?? "Failed to load active events"))
+      .finally(() => setActiveLoading(false));
+  }, []);
+
   // Hero / trending events
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
-    const url = `${baseUrl}/api/events/hero`;
+    const url = eventsApiUrl("/api/events/hero");
 
     fetch(url)
       .then((res) => {
@@ -100,8 +133,7 @@ export default function TestPage() {
   }, []);
 
   useEffect(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
-    const url = `${baseUrl }/api/events/by-status?status=completed`;
+    const url = eventsApiUrl("/api/events/by-status?status=completed");
 
     fetch(url)
       .then((res) => {
@@ -157,6 +189,9 @@ export default function TestPage() {
     return `In ${String(t.days).padStart(2, '0')}:${String(t.hours).padStart(2, '0')}:${String(t.minutes).padStart(2, '0')}:${String(t.seconds).padStart(2, '0')}`;
   };
 
+  const formatEndDate = (iso: string) =>
+    new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+
   const getHeroStatusBadge = (event: Event) => {
     const now = Date.now();
     const start = new Date(event.start_date).getTime();
@@ -173,8 +208,23 @@ export default function TestPage() {
     return { label: 'Finished', color: 'bg-gray-500', pulse: false };
   };
 
+  const activeIdSet = useMemo(() => new Set(activeEvents.map((e) => e.id)), [activeEvents]);
+  const allLiveEvents = useMemo(
+    () => mergeActiveAndUpcoming(activeEvents, events),
+    [activeEvents, events],
+  );
+  const visibleActiveEvents = showAllActiveMobile
+    ? activeEvents
+    : activeEvents.slice(0, MOBILE_INITIAL_CARDS);
+  const visibleUpcomingEvents = showAllUpcomingMobile
+    ? events
+    : events.slice(0, MOBILE_INITIAL_CARDS);
+  const visibleAllEvents = showAllCombinedMobile
+    ? allLiveEvents
+    : allLiveEvents.slice(0, MOBILE_INITIAL_CARDS);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-[#050515]  via-[#1c2248]  to-[#050515]  text-white">
       {/* Hero Section */}
       <section className="relative px-6 py-20 overflow-hidden">
         {/* Starry background */}
@@ -241,16 +291,29 @@ export default function TestPage() {
                          
                           <div key={event.id ?? idx} className="group flex-1 bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 hover:bg-white/15 hover:border-white/30 transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-purple-500/20">
                              <Link href={`/events/${event.id}`}>
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="px-3 py-1 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-[11px] font-semibold max-w-[160px] truncate">
-                                {event.category_name ?? 'Global Event'}
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <div className="hidden sm:flex min-w-0 flex-1 items-center gap-2">
+                                <ReactCountryFlag
+                                  countryCode="US"
+                                  svg
+                                  style={{
+                                    width: '2em',
+                                    height: '2em',
+                                    borderRadius: '4px',
+                                    flexShrink: 0,
+                                  }}
+                                  title="United States"
+                                />
+                                {/* <div className="truncate px-3 py-1 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-[11px] font-semibold max-w-[140px]">
+                                  {event.category_name ?? 'Global Event'}
+                                </div> */}
                               </div>
 
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${badge.color} ${badge.pulse ? 'animate-pulse' : ''} shadow-lg`}>
+                              <span className={`text-xs shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${badge.color} ${badge.pulse ? 'animate-pulse' : ''} shadow-lg`}>
                                 {badge.label}
                               </span>
                             </div>
-                            <h3 className="text-sm font-bold group-hover:text-blue-300 transition-colors line-clamp-2">
+                            <h3 className="text-xs font-bold group-hover:text-blue-300 transition-colors line-clamp-2">
                               {event.title}
                             </h3>
                             </Link>
@@ -317,17 +380,17 @@ export default function TestPage() {
               </svg>
               
               {/* Earth Image */}
-              <div className="relative z-10">
+              <div className="relative z-10 hidden sm:block">
                 <div className="relative w-[700px] h-[600px]">
                   <Image
-                    src="/Gemini_Generated_Image_393hjh393hjh393h-removebg-preview.png"
+                    src="/src1.png"
                     alt="Earth Globe"
                     fill
                     className="object-contain drop-shadow-2xl"
                     priority
                   />
                   {/* Blue glow around Earth */}
-                  <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-2xl -z-10"></div>
+                  <div className="absolute inset-0 bg-[#1c2248] rounded-full blur-2xl -z-10"></div>
                 </div>
               </div>
               
@@ -349,11 +412,11 @@ export default function TestPage() {
             </h2>
             <p className="text-gray-300 text-lg">Discover voting events across different topics and regions</p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 md:gap-6">
+          <div className="-mx-1 flex gap-4 overflow-x-auto px-1 pb-2 sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0 md:grid-cols-6 md:gap-6">
             {categoriesLoading ? (
-              <div className="col-span-full text-center py-12 text-gray-400">Loading categories...</div>
+              <div className="min-w-full text-center py-12 text-gray-400 sm:col-span-full">Loading categories...</div>
             ) : categoriesError ? (
-              <div className="col-span-full text-center py-12 text-red-400">{categoriesError}</div>
+              <div className="min-w-full text-center py-12 text-red-400 sm:col-span-full">{categoriesError}</div>
             ) : (
               categories
                 .filter((c) => c.parent_id == null)
@@ -363,7 +426,7 @@ export default function TestPage() {
                     <Link href={`/by-category/${category.id}`}>
                     <div
                       key={category.id}
-                      className="group flex flex-col items-center gap-4 p-6 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/15 hover:border-white/30 transition-all duration-300 cursor-pointer transform hover:scale-105 hover:shadow-xl hover:shadow-purple-500/20"
+                      className="group min-w-[220px] flex-shrink-0 flex flex-col items-center gap-4 p-6 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 hover:bg-white/15 hover:border-white/30 transition-all duration-300 cursor-pointer transform hover:scale-105 hover:shadow-xl hover:shadow-purple-500/20 sm:min-w-0 sm:flex-shrink"
                     >
                       <div className={`relative w-20 h-20 rounded-full bg-gradient-to-br ${style.gradient} p-1 group-hover:scale-110 transition-transform duration-300`}>
                         <div className="w-full h-full rounded-full bg-slate-900/50 flex items-center justify-center">
@@ -380,7 +443,146 @@ export default function TestPage() {
         </div>
       </section>
 
+      {/* Active events — filtered via API */}
+      <section className="px-6 py-16 relative">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+              Active Events
+            </h2>
+            <p className="text-gray-300 text-lg">
+              Open polls you can join right now — voting is live for these events.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {activeLoading ? (
+              <div className="col-span-full text-center py-12 text-gray-400">Loading active events…</div>
+            ) : activeError ? (
+              <div className="col-span-full text-center py-12 text-red-400">{activeError}</div>
+            ) : activeEvents.length === 0 ? (
+              <div className="col-span-full text-center py-12 text-gray-400">No active events right now.</div>
+            ) : (
+              visibleActiveEvents.map((event, idx) => {
+                const badge = getHeroStatusBadge(event);
+                const pieChart = [
+                  { color: "#3b82f6", percent: 40 },
+                  { color: "#eab308", percent: 30 },
+                  { color: "#84cc16", percent: 20 },
+                  { color: "#ef4444", percent: 10 },
+                ];
+                let currentAngle = -90;
+                const radius = 40;
+                const centerX = 50;
+                const centerY = 50;
 
+                return (
+                  <div
+                    key={event.id ?? idx}
+                    className="group bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-emerald-500/20 hover:bg-white/15 hover:border-emerald-400/35 transition-all duration-300 relative overflow-hidden transform hover:scale-[1.02] hover:shadow-2xl hover:shadow-emerald-500/15"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/0 to-cyan-500/0 group-hover:from-emerald-500/10 group-hover:to-cyan-500/5 transition-all duration-300 rounded-2xl" />
+                    <div className="relative z-10 flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-xs font-bold ${badge.color} ${badge.pulse ? "animate-pulse" : ""} shadow-lg`}
+                          >
+                            {badge.label}
+                          </span>
+                          {event.category_name ? (
+                            <span className="text-xs uppercase tracking-wide text-gray-400 truncate">
+                              {event.category_name}
+                            </span>
+                          ) : null}
+                        </div>
+                        <h3 className="text-xl font-bold mb-3 group-hover:text-emerald-300 transition-colors line-clamp-2">
+                          {event.title}
+                        </h3>
+                        <div className="flex items-center gap-2 mb-4 p-2 bg-emerald-950/30 rounded-lg border border-emerald-500/25">
+                          <svg
+                            className="w-4 h-4 shrink-0 text-emerald-300"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          <p className="text-emerald-200/90 text-sm">
+                            <span className="text-gray-400">Ends </span>
+                            {formatEndDate(event.end_date)}
+                          </p>
+                        </div>
+                        <Link href={`/events/test/${event.id}`}>
+                          <button
+                            type="button"
+                            className="w-full py-3 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-lg transition-all font-semibold hover:from-emerald-400 hover:to-cyan-400 hover:shadow-lg hover:shadow-emerald-500/40 transform hover:scale-[1.02]"
+                          >
+                            View &amp; vote
+                          </button>
+                        </Link>
+                      </div>
+                      <div className="flex-shrink-0 relative">
+                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-400/20 to-cyan-400/20 rounded-full blur-xl group-hover:blur-2xl transition-all" />
+                        <svg
+                          width="100"
+                          height="100"
+                          viewBox="0 0 100 100"
+                          className="drop-shadow-2xl relative z-10 group-hover:scale-110 transition-transform duration-300"
+                        >
+                          {pieChart.map((segment, segIdx) => {
+                            const angle = (segment.percent / 100) * 360;
+                            const startAngle = currentAngle;
+                            const endAngle = currentAngle + angle;
+                            const startAngleRad = (startAngle * Math.PI) / 180;
+                            const endAngleRad = (endAngle * Math.PI) / 180;
+                            const x1 = centerX + radius * Math.cos(startAngleRad);
+                            const y1 = centerY + radius * Math.sin(startAngleRad);
+                            const x2 = centerX + radius * Math.cos(endAngleRad);
+                            const y2 = centerY + radius * Math.sin(endAngleRad);
+                            const largeArcFlag = angle > 180 ? 1 : 0;
+                            const pathData = [
+                              `M ${centerX} ${centerY}`,
+                              `L ${x1} ${y1}`,
+                              `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                              "Z",
+                            ].join(" ");
+                            currentAngle = endAngle;
+                            return (
+                              <path
+                                key={segIdx}
+                                d={pathData}
+                                fill={segment.color}
+                                stroke="#1e293b"
+                                strokeWidth="0.5"
+                              />
+                            );
+                          })}
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {!activeLoading && !activeError && activeEvents.length > MOBILE_INITIAL_CARDS && !showAllActiveMobile ? (
+            <div className="mt-6 text-center sm:hidden">
+              <button
+                type="button"
+                onClick={() => setShowAllActiveMobile(true)}
+                className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-5 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/25"
+              >
+                Show more
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       <section className="px-6 py-16 relative">
         <div className="max-w-7xl mx-auto">
@@ -404,7 +606,7 @@ export default function TestPage() {
                 No upcoming events found.
               </div>
             ) : (
-              events.map((event, idx) => {
+              visibleUpcomingEvents.map((event, idx) => {
                 // Simple static pie chart segments (you can later map real data)
                 const pieChart = [
                   { color: '#3b82f6', percent: 40 }, // Blue
@@ -506,6 +708,158 @@ export default function TestPage() {
               })
             )}
           </div>
+          {!eventsLoading && !eventsError && events.length > MOBILE_INITIAL_CARDS && !showAllUpcomingMobile ? (
+            <div className="mt-6 text-center sm:hidden">
+              <button
+                type="button"
+                onClick={() => setShowAllUpcomingMobile(true)}
+                className="rounded-full border border-purple-400/40 bg-purple-500/15 px-5 py-2 text-sm font-semibold text-purple-200 transition hover:bg-purple-500/25"
+              >
+                Show more
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+
+      <section className="px-6 py-16 relative">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              All Events
+            </h2>
+            <p className="text-gray-300 text-lg">
+              Active and upcoming polls in one list — same layout for every card.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {activeLoading || eventsLoading ? (
+              <div className="col-span-full text-center py-12 text-gray-400">Loading events…</div>
+            ) : activeError || eventsError ? (
+              <div className="col-span-full text-center py-12 text-red-400">
+                {activeError ?? eventsError}
+              </div>
+            ) : allLiveEvents.length === 0 ? (
+              <div className="col-span-full text-center py-12 text-gray-400">No active or upcoming events.</div>
+            ) : (
+              visibleAllEvents.map((event, idx) => {
+                const badge = getHeroStatusBadge(event);
+                const pieChart = [
+                  { color: '#3b82f6', percent: 40 },
+                  { color: '#eab308', percent: 30 },
+                  { color: '#84cc16', percent: 20 },
+                  { color: '#ef4444', percent: 10 },
+                ];
+                let currentAngle = -90;
+                const radius = 40;
+                const centerX = 50;
+                const centerY = 50;
+                const href = activeIdSet.has(event.id)
+                  ? `/events/test/${event.id}`
+                  : `/events/upcoming/${event.id}`;
+
+                return (
+                  <div
+                    key={event.id ?? idx}
+                    className="group bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 hover:bg-white/15 hover:border-white/30 transition-all duration-300 relative overflow-hidden transform hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/20"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-purple-500/0 group-hover:from-blue-500/10 group-hover:to-purple-500/10 transition-all duration-300 rounded-2xl"></div>
+                    <div className="relative z-10 flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
+                          <h3 className="text-xl font-bold group-hover:text-blue-300 transition-colors line-clamp-2">
+                            {event.title}
+                          </h3>
+                          <span
+                            className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${badge.color} ${badge.pulse ? 'animate-pulse' : ''} shadow-lg`}
+                          >
+                            {badge.label}
+                          </span>
+                        </div>
+                        {event.category_name && (
+                          <p className="text-xs text-gray-300 mb-1 uppercase tracking-wide">
+                            {event.category_name}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 mb-4 p-2 bg-purple-900/20 rounded-lg border border-purple-500/20">
+                          <svg className="w-4 h-4 text-purple-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p className="text-purple-200/90 text-sm">
+                            <span className="text-gray-400">Ends </span>
+                            {formatEndDate(event.end_date)}
+                          </p>
+                        </div>
+                        <Link href={href}>
+                          <button
+                            type="button"
+                            className="w-full py-3 bg-gradient-to-r from-blue-400 to-purple-400 rounded-lg transition-all font-semibold hover:from-blue-500 hover:to-purple-500 hover:shadow-lg hover:shadow-purple-500/50 transform hover:scale-105"
+                          >
+                            View event
+                          </button>
+                        </Link>
+                      </div>
+                      <div className="flex-shrink-0 relative">
+                        <div className="absolute inset-0 bg-gradient-to-br from-blue-400/20 to-purple-400/20 rounded-full blur-xl group-hover:blur-2xl transition-all"></div>
+                        <svg
+                          width="100"
+                          height="100"
+                          viewBox="0 0 100 100"
+                          className="drop-shadow-2xl relative z-10 group-hover:scale-110 transition-transform duration-300"
+                        >
+                          {pieChart.map((segment, segIdx) => {
+                            const angle = (segment.percent / 100) * 360;
+                            const startAngle = currentAngle;
+                            const endAngle = currentAngle + angle;
+                            const startAngleRad = (startAngle * Math.PI) / 180;
+                            const endAngleRad = (endAngle * Math.PI) / 180;
+                            const x1 = centerX + radius * Math.cos(startAngleRad);
+                            const y1 = centerY + radius * Math.sin(startAngleRad);
+                            const x2 = centerX + radius * Math.cos(endAngleRad);
+                            const y2 = centerY + radius * Math.sin(endAngleRad);
+                            const largeArcFlag = angle > 180 ? 1 : 0;
+                            const pathData = [
+                              `M ${centerX} ${centerY}`,
+                              `L ${x1} ${y1}`,
+                              `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+                              'Z',
+                            ].join(' ');
+                            currentAngle = endAngle;
+                            return (
+                              <path
+                                key={segIdx}
+                                d={pathData}
+                                fill={segment.color}
+                                stroke="#1e293b"
+                                strokeWidth="0.5"
+                              />
+                            );
+                          })}
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {!activeLoading &&
+          !eventsLoading &&
+          !activeError &&
+          !eventsError &&
+          allLiveEvents.length > MOBILE_INITIAL_CARDS &&
+          !showAllCombinedMobile ? (
+            <div className="mt-6 text-center sm:hidden">
+              <button
+                type="button"
+                onClick={() => setShowAllCombinedMobile(true)}
+                className="rounded-full border border-blue-400/40 bg-blue-500/15 px-5 py-2 text-sm font-semibold text-blue-200 transition hover:bg-blue-500/25"
+              >
+                Show more
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 

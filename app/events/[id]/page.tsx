@@ -171,7 +171,7 @@ export default function EventDetailPage() {
           user_id: userId,
           event_id: eventId,
           option_id: selectedOption.id,
-          country_id: "1e472a00-f9d4-452b-8aaf-ebb56e216d5e",
+          country_id: sessionStorage.getItem("CountryId"),
         }),
       });
 
