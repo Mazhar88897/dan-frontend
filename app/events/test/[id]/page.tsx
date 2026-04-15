@@ -105,9 +105,11 @@ type CountryVoteDonutSegment = {
 function CountryVotesDonut({
   centerTotal,
   segments,
+  showLegend = true,
 }: {
   centerTotal: number;
   segments: CountryVoteDonutSegment[];
+  showLegend?: boolean;
 }) {
   const cx = 100;
   const cy = 100;
@@ -138,7 +140,13 @@ function CountryVotesDonut({
   });
 
   return (
-    <div className="flex flex-col items-center gap-10 lg:flex-row lg:items-center lg:justify-center lg:gap-16">
+    <div
+      className={
+        showLegend
+          ? "flex flex-col items-center gap-10 lg:flex-row lg:items-center lg:justify-center lg:gap-16"
+          : "flex items-center justify-center"
+      }
+    >
       <div className="relative w-full max-w-[min(100%,440px)] shrink-0 sm:max-w-[400px]">
         <svg
           width={400}
@@ -234,51 +242,53 @@ function CountryVotesDonut({
         </div>
       </div>
 
-      <ul className="w-full max-w-md space-y-3 text-sm sm:text-base lg:max-w-sm">
-        {segments.map((seg, i) => (
-          <li
-            key={`${seg.name}-${i}`}
-            className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2.5"
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              {seg.flagIso ? (
-                <ReactCountryFlag
-                  countryCode={seg.flagIso}
-                  svg
-                  style={{
-                    width: "1.5em",
-                    height: "1.5em",
-                    borderRadius: "4px",
-                    boxShadow: "0 0 10px rgba(167,139,250,0.3)",
-                  }}
-                  title={seg.name}
-                />
-              ) : (
+      {showLegend ? (
+        <ul className="w-full max-w-md space-y-3 text-sm sm:text-base lg:max-w-sm">
+          {segments.map((seg, i) => (
+            <li
+              key={`${seg.name}-${i}`}
+              className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2.5"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                {seg.flagIso ? (
+                  <ReactCountryFlag
+                    countryCode={seg.flagIso}
+                    svg
+                    style={{
+                      width: "1.5em",
+                      height: "1.5em",
+                      borderRadius: "4px",
+                      boxShadow: "0 0 10px rgba(167,139,250,0.3)",
+                    }}
+                    title={seg.name}
+                  />
+                ) : (
+                  <span
+                    className="flex h-[1.5em] w-[1.5em] shrink-0 items-center justify-center rounded bg-white/10 text-base leading-none text-white/60"
+                    title="Unknown region"
+                    aria-hidden
+                  >
+                    🌐
+                  </span>
+                )}
                 <span
-                  className="flex h-[1.5em] w-[1.5em] shrink-0 items-center justify-center rounded bg-white/10 text-base leading-none text-white/60"
-                  title="Unknown region"
+                  className="h-2 w-2 shrink-0 rounded-full shadow-[0_0_8px_currentColor]"
+                  style={{
+                    backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length],
+                    color: DONUT_COLORS[i % DONUT_COLORS.length],
+                  }}
                   aria-hidden
-                >
-                  🌐
-                </span>
-              )}
-              <span
-                className="h-2 w-2 shrink-0 rounded-full shadow-[0_0_8px_currentColor]"
-                style={{
-                  backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length],
-                  color: DONUT_COLORS[i % DONUT_COLORS.length],
-                }}
-                aria-hidden
-              />
-              <span className="truncate font-medium text-white/90">{seg.name}</span>
-            </span>
-            <span className="shrink-0 tabular-nums text-white/60">
-              {formatInt(seg.votes)}{" "}
-              <span className="text-white/40">({seg.pct.toFixed(0)}%)</span>
-            </span>
-          </li>
-        ))}
-      </ul>
+                />
+                <span className="truncate font-medium text-white/90">{seg.name}</span>
+              </span>
+              <span className="shrink-0 tabular-nums text-white/60">
+                {formatInt(seg.votes)}{" "}
+                <span className="text-white/40">({seg.pct.toFixed(0)}%)</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -372,7 +382,11 @@ const OPTION_STYLES = [
 const COUNTRY_NAME_TO_ISO: Record<string, string> = {
   Global: "",
   "United States": "US",
+  "United States of America": "US",
+  "United States Of America": "US",
   USA: "US",
+  "U.S.A.": "US",
+  "U.S.": "US",
   China: "CN",
   Germany: "DE",
   Canada: "CA",
@@ -389,7 +403,19 @@ const COUNTRY_NAME_TO_ISO: Record<string, string> = {
 
 function countryFlagCode(countryId: string, countryName: string): string | null {
   if (countryId === "global" || /^global$/i.test(countryName)) return null;
-  return COUNTRY_NAME_TO_ISO[countryName] ?? null;
+
+  const idNorm = countryId.trim().toUpperCase();
+  if (idNorm === "US" || idNorm === "USA") return "US";
+
+  const trimmed = countryName.trim();
+  const mapped = COUNTRY_NAME_TO_ISO[trimmed];
+  if (mapped !== undefined) return mapped || null;
+
+  const lower = trimmed.toLowerCase();
+  if (lower === "usa" || lower === "u.s.a." || lower === "u.s.") return "US";
+  if (lower.includes("united states")) return "US";
+
+  return null;
 }
 
 function orderCountryOptionsByEvent(
@@ -407,6 +433,36 @@ function orderCountryOptionsByEvent(
       }
     );
   });
+}
+
+function yesNoUndecidedRank(name: string): number | null {
+  const n = name.trim().toLowerCase();
+  if (n === "yes" || n === "y") return 0;
+  if (n === "no" || n === "n") return 1;
+  if (
+    n === "undecided" ||
+    n === "abstain" ||
+    n === "maybe" ||
+    n === "not sure" ||
+    n === "unsure" ||
+    n === "neutral"
+  ) {
+    return 2;
+  }
+  return null;
+}
+
+/** If Yes, No, and an undecided-type option are all present, order them Yes → No → Undecided, then any other options. */
+function sortOptionsYesNoUndecidedFirst<T extends { name: string }>(items: T[]): T[] {
+  if (items.length < 3) return items;
+  const ranked = items.filter((i) => yesNoUndecidedRank(i.name) !== null);
+  const hasYes = ranked.some((i) => yesNoUndecidedRank(i.name) === 0);
+  const hasNo = ranked.some((i) => yesNoUndecidedRank(i.name) === 1);
+  const hasUndecided = ranked.some((i) => yesNoUndecidedRank(i.name) === 2);
+  if (!(hasYes && hasNo && hasUndecided)) return items;
+  const unranked = items.filter((i) => yesNoUndecidedRank(i.name) === null);
+  ranked.sort((a, b) => (yesNoUndecidedRank(a.name) as number) - (yesNoUndecidedRank(b.name) as number));
+  return [...ranked, ...unranked];
 }
 
 function PieChartIcon({ size = 28 }: { size?: number }) {
@@ -503,6 +559,41 @@ function GlassPanel({ className = "", children }: { className?: string; children
       {children}
     </div>
   );
+}
+
+const AGE_BUCKET_LABELS = ["<21", "21-35", "35-50", "50-65", "65+"] as const;
+const AGE_BUCKET_CENTERS = [18, 28, 42, 57, 72];
+
+/**
+ * When the API does not return per-bracket vote counts, approximate bucket totals from
+ * `avg_age` and `total_votes_cast` so bars sum to the overall vote count.
+ */
+function splitVotesAcrossAgeBuckets(meanAge: number, totalVotes: number): number[] {
+  const n = AGE_BUCKET_LABELS.length;
+  const zeros = () => Array.from({ length: n }, () => 0);
+  if (totalVotes <= 0 || !Number.isFinite(meanAge) || meanAge <= 0) return zeros();
+
+  const sigma = 14;
+  const raw = AGE_BUCKET_CENTERS.map((c) =>
+    Math.exp(-0.5 * ((c - meanAge) / sigma) ** 2),
+  );
+  const sumW = raw.reduce((a, b) => a + b, 0);
+  if (sumW <= 0) {
+    const u = Math.floor(totalVotes / n);
+    const r = totalVotes % n;
+    return AGE_BUCKET_LABELS.map((_, i) => u + (i < r ? 1 : 0));
+  }
+
+  const floats = raw.map((w) => (w / sumW) * totalVotes);
+  const ints = floats.map((f) => Math.floor(f));
+  let rem = totalVotes - ints.reduce((a, b) => a + b, 0);
+  const frac = floats.map((f, i) => ({ i, f: f - Math.floor(f) }));
+  frac.sort((a, b) => b.f - a.f);
+  const out = [...ints];
+  for (let k = 0; k < rem; k++) {
+    out[frac[k % frac.length].i]++;
+  }
+  return out;
 }
 
 function ResultBar({
@@ -624,7 +715,10 @@ export default function TestEventPage() {
     now >= new Date(event.start_date).getTime() &&
     now < endMs;
 
-  const options = event?.options ?? [];
+  const options = useMemo(
+    () => sortOptionsYesNoUndecidedFirst(event?.options ?? []),
+    [event?.options],
+  );
   const totalVotes = event?.total_votes_cast ?? 0;
 
   const globalBars = useMemo(() => {
@@ -648,9 +742,9 @@ export default function TestEventPage() {
       .filter((row) => row.country_id !== "global")
       .map((row) => ({
         ...row,
-        ordered: orderCountryOptionsByEvent(row.options, event.options),
+        ordered: orderCountryOptionsByEvent(row.options, options),
       }));
-  }, [byCountry, event]);
+  }, [byCountry, event, options]);
 
   const countryVoteDonutSegments = useMemo(() => {
     const rows = byCountry.filter((r) => r.country_id !== "global");
@@ -671,6 +765,50 @@ export default function TestEventPage() {
     }));
   }, [byCountry]);
 
+  const countryVoteBarRows = useMemo(() => {
+    const rows = byCountry.filter((r) => r.country_id !== "global");
+    const withTotals = rows
+      .map((row) => ({
+        key: row.country_id,
+        label: row.country_name,
+        votes: row.options.reduce((s, o) => s + o.votes_count, 0),
+      }))
+      .filter((x) => x.votes > 0)
+      .sort((a, b) => b.votes - a.votes);
+    const sum = withTotals.reduce((s, x) => s + x.votes, 0);
+    if (sum <= 0) return [] as { key: string; label: string; valueLabel: string; pct: number; colorClass: string; glowClass: string }[];
+    return withTotals.map((row, i) => {
+      const pct = (row.votes / sum) * 100;
+      const style = OPTION_STYLES[i % OPTION_STYLES.length];
+      return {
+        key: row.key,
+        label: row.label,
+        valueLabel: `${formatInt(row.votes)} (${pct.toFixed(pct > 0 && pct < 0.1 ? 1 : 0)}%)`,
+        pct,
+        ...style,
+      };
+    });
+  }, [byCountry]);
+
+  const ageVoteBarRows = useMemo(() => {
+    const total = event?.total_votes_cast ?? 0;
+    const mean = event?.avg_age ?? 0;
+    const counts = splitVotesAcrossAgeBuckets(mean, total);
+    const denom = total > 0 ? total : 1;
+    return AGE_BUCKET_LABELS.map((label, i) => {
+      const c = counts[i] ?? 0;
+      const pct = total > 0 ? (c / denom) * 100 : 0;
+      const style = OPTION_STYLES[i % OPTION_STYLES.length];
+      return {
+        key: label,
+        label,
+        valueLabel: `${formatInt(c)} (${pct.toFixed(pct > 0 && pct < 0.1 ? 1 : 0)}%)`,
+        pct,
+        ...style,
+      };
+    });
+  }, [event?.avg_age, event?.total_votes_cast]);
+
   const heroDescription = useMemo(() => {
     if (!event) return "";
     const plain = stripHtml(event.description);
@@ -680,14 +818,22 @@ export default function TestEventPage() {
   const handleShare = async () => {
     if (typeof window === "undefined" || !eventId) return;
     const url = `${window.location.origin}/events/test/${eventId}`;
-    try {
-      if (navigator.share) {
+
+    if (typeof navigator.share === "function") {
+      try {
         await navigator.share({ title: event?.title, url });
-      } else {
-        await navigator.clipboard.writeText(url);
+        toast.success("Link shared!");
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
       }
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied!");
     } catch {
-      /* ignore */
+      toast.error("Couldn't copy link");
     }
   };
 
@@ -861,8 +1007,10 @@ export default function TestEventPage() {
                 type="button"
                 disabled={options.length === 0}
                 onClick={() => {
-                  const opt = selectedOption ?? options[0];
-                  if (opt) handleOptionVoteClick(opt);
+                  document.getElementById("vote")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
                 }}
                 className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-purple-600 to-blue-500 px-8 py-3 text-sm font-semibold text-white shadow-[0_0_28px_rgba(59,130,246,0.4)] transition hover:from-blue-500 hover:to-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -884,15 +1032,18 @@ export default function TestEventPage() {
               className="pointer-events-none absolute right-0 top-1/2 h-[min(90vw,520px)] w-[min(90vw,520px)] -translate-y-1/2 translate-x-[15%] rounded-full bg-[radial-gradient(circle,rgba(251,191,36,0.35)_0%,rgba(251,146,60,0.12)_35%,transparent_65%)] blur-2xl"
               aria-hidden
             />
-            <div className=" relative aspect-square w-full max-w-[min(100%,520px)]">
-              <Image
-                src="/src1.png"
-                alt=""
-                fill
-                className="object-contain object-center drop-shadow-[0_0_60px_rgba(59,130,246,0.35)]"
-                priority
-                sizes="(max-width: 1024px) 90vw, 520px"
-              />
+            <div className="relative pt-16 aspect-square w-full max-w-[min(100%,520px)]">
+              {countryVoteDonutSegments.length === 0 ? (
+                <div className="flex h-full w-full items-center justify-center rounded-full border border-white/10 bg-white/[0.03]">
+                  <GlobeIcon />
+                </div>
+              ) : (
+                <CountryVotesDonut
+                  centerTotal={event.total_votes_cast}
+                  segments={countryVoteDonutSegments}
+                  showLegend={false}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -961,50 +1112,71 @@ export default function TestEventPage() {
 
           <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
             <GlassPanel className="overflow-hidden  p-5 sm:p-6">
-              {activeTab === "By Country" ? (
-                <div className="relative flex min-h-[200px] flex-col justify-center rounded-xl  px-6 py-10 text-center">
-                  <GlobeIcon />
-                  <p className="mx-auto mt-4 max-w-md text-sm text-white/65">
-                    Country-level vote splits are listed in the comparison table below. Use this tab to
-                    focus on geographic breakdown while we keep the hero chart for global totals.
-                  </p>
-                </div>
-              ) : activeTab !== "Global Results" ? (
-                <div className="relative flex min-h-[200px] flex-col items-center justify-center rounded-xl  px-6 py-4 text-center">
-                  <PieChartIcon size={40} />
-                  <p className="mt-4 text-sm text-white/50">
-                    {activeTab} view is not available from the API yet. Showing global totals.
-                  </p>
-                </div>
-              ) : (
-                <div className=" relative aspect-[16/9] w-full overflow-hidden rounded-xl ">
-                  <Image
-                    src="/src2.png"
-                    alt=""
-                    fill
-                    className="object-cover object-center"
-                    sizes="(max-width: 1024px) 100vw, 55vw"
-                  />
-                  {/* <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#050515]/80 via-transparent to-transparent" /> */}
-                </div>
-              )}
-              {/* <div className="mt-5 mb-3">
-                <p className="text-4xl font-semibold tabular-nums text-blue-300">{leadingPct.toFixed(0)}%</p>
-              </div> */}
+              <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl">
+                <Image
+                  src="/src2.png"
+                  alt=""
+                  fill
+                  className="object-cover object-center"
+                  sizes="(max-width: 1024px) 100vw, 55vw"
+                />
+              </div>
               <div className="mt-4 space-y-4">
-                {globalBars.length === 0 ? (
-                  <p className="text-sm text-white/50">No voting options configured.</p>
+                {activeTab === "Global Results" ? (
+                  globalBars.length === 0 ? (
+                    <p className="text-sm text-white/50">No voting options configured.</p>
+                  ) : (
+                    globalBars.map((bar) => (
+                      <ResultBar
+                        key={bar.key}
+                        label={bar.label}
+                        valueLabel={bar.valueLabel}
+                        pct={bar.pct}
+                        colorClass={bar.colorClass}
+                        glowClass={bar.glowClass}
+                      />
+                    ))
+                  )
+                ) : activeTab === "By Country" ? (
+                  countryVoteBarRows.length === 0 ? (
+                    <p className="text-sm text-white/50">No country-level votes yet.</p>
+                  ) : (
+                    countryVoteBarRows.map((bar) => (
+                      <ResultBar
+                        key={bar.key}
+                        label={bar.label}
+                        valueLabel={bar.valueLabel}
+                        pct={bar.pct}
+                        colorClass={bar.colorClass}
+                        glowClass={bar.glowClass}
+                      />
+                    ))
+                  )
                 ) : (
-                  globalBars.map((bar) => (
-                    <ResultBar
-                      key={bar.key}
-                      label={bar.label}
-                      valueLabel={bar.valueLabel}
-                      pct={bar.pct}
-                      colorClass={bar.colorClass}
-                      glowClass={bar.glowClass}
-                    />
-                  ))
+                  <>
+                    {totalVotes <= 0 || !Number.isFinite(event.avg_age) || event.avg_age <= 0 ? (
+                      <p className="text-sm text-white/50">
+                        Age breakdown appears once there are votes and a valid average age.
+                      </p>
+                    ) : (
+                      ageVoteBarRows.map((bar) => (
+                        <ResultBar
+                          key={bar.key}
+                          label={bar.label}
+                          valueLabel={bar.valueLabel}
+                          pct={bar.pct}
+                          colorClass={bar.colorClass}
+                          glowClass={bar.glowClass}
+                        />
+                      ))
+                    )}
+                    {totalVotes > 0 && Number.isFinite(event.avg_age) && event.avg_age > 0 ? (
+                      <p className="pt-1 text-[11px] leading-snug text-white/40">
+                        Bracket counts are estimated from average age and total votes until per-age
+                        counts are available from the API.
+                      </p>
+                    ) : null}
+                  </>
                 )}
               </div>
             </GlassPanel>
@@ -1048,7 +1220,7 @@ export default function TestEventPage() {
                         : "text-white/55 hover:bg-white/5 hover:text-white/85"
                     }`}
                   >
-                    {opt.name}
+                   Why {opt.name}?
                   </button>
                 ))}
                 </div>
@@ -1086,7 +1258,7 @@ export default function TestEventPage() {
             <p className="mx-auto mt-2 max-w-lg text-sm text-white/50">
               Tap an option to sign in (if needed), complete KYC, and confirm your vote.
             </p>
-            <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="mt-8 flex flex-row flex-nowrap gap-3 sm:gap-4">
               {options.map((opt, i) => {
                 const style = OPTION_STYLES[i % OPTION_STYLES.length];
                 return (
@@ -1094,7 +1266,7 @@ export default function TestEventPage() {
                     key={opt.id}
                     type="button"
                     onClick={() => handleOptionVoteClick(opt)}
-                    className={`w-full min-w-0 rounded-xl bg-gradient-to-r px-2 py-3.5 text-center text-sm font-bold leading-tight tracking-wide text-white transition sm:px-3 sm:py-4 sm:text-base ${style.colorClass} ${style.glowClass} hover:opacity-95`}
+                    className={`min-w-0 flex-1 whitespace-nowrap rounded-xl bg-gradient-to-r px-2 py-3.5 text-center text-sm font-bold leading-tight tracking-wide text-white transition sm:px-3 sm:py-4 sm:text-base ${style.colorClass} ${style.glowClass} hover:opacity-95`}
                   >
                     {opt.name}
                   </button>
@@ -1406,7 +1578,12 @@ export default function TestEventPage() {
       {showConfirmModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8 backdrop-blur-md"
-          onClick={() => !voteLoading && setShowConfirmModal(false)}
+          onClick={() => {
+            if (voteLoading) return;
+            setShowConfirmModal(false);
+            setVoteError(null);
+            setVoteTargetOption(null);
+          }}
         >
           <div
             className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-white/15 shadow-[0_0_60px_rgba(88,28,135,0.35)]"
@@ -1436,7 +1613,11 @@ export default function TestEventPage() {
             <button
               type="button"
               className="absolute right-4 top-4 z-20 rounded-lg p-1.5 text-lg leading-none text-white/50 transition hover:bg-white/10 hover:text-white"
-              onClick={() => setShowConfirmModal(false)}
+              onClick={() => {
+                setShowConfirmModal(false);
+                setVoteError(null);
+                setVoteTargetOption(null);
+              }}
               disabled={voteLoading}
               aria-label="Close"
             >
@@ -1465,34 +1646,30 @@ export default function TestEventPage() {
                 <p className="mx-auto mt-4 max-w-md text-sm text-red-400">{voteError}</p>
               )}
 
-              <div className="mx-auto mt-10 flex max-w-3xl flex-col flex-wrap items-stretch justify-center gap-4 sm:flex-row sm:gap-5">
+              <div className="mx-auto mt-10 flex max-w-md flex-row flex-nowrap items-stretch justify-center gap-3 sm:gap-4">
                 <button
                   type="button"
                   onClick={() => void handleVoteSubmit()}
                   disabled={voteLoading}
-                  className="w-full rounded-xl border-t border-white/35 bg-gradient-to-b from-blue-400 via-blue-600 to-blue-800 py-4 text-base font-bold uppercase tracking-wide text-white shadow-[0_8px_28px_rgba(59,130,246,0.45),inset_0_1px_0_rgba(255,255,255,0.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[220px] sm:flex-1"
+                  className="min-w-0 flex-1 rounded-xl border-t border-white/35 bg-gradient-to-b from-blue-400 via-blue-600 to-blue-800 py-3.5 text-base font-bold tracking-wide text-white shadow-[0_8px_28px_rgba(59,130,246,0.45),inset_0_1px_0_rgba(255,255,255,0.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:py-4"
                 >
-                  {voteLoading ? "Submitting…" : "Yes"}
+                  {voteLoading ? "Submitting…" : "Vote"}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowConfirmModal(false)}
+                  onClick={() => {
+                    setShowConfirmModal(false);
+                    setVoteError(null);
+                    setVoteTargetOption(null);
+                  }}
                   disabled={voteLoading}
-                  className="w-full rounded-xl border-t border-white/25 bg-gradient-to-b from-rose-500 via-red-600 to-red-900 py-4 text-base font-bold uppercase tracking-wide text-white shadow-[0_8px_28px_rgba(239,68,68,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[220px] sm:flex-1"
+                  className="min-w-0 flex-1 rounded-xl border border-white/20 bg-white/5 py-3.5 text-base font-semibold tracking-wide text-white/90 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60 sm:py-4"
                 >
-                  No
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmModal(false)}
-                  disabled={voteLoading}
-                  className="w-full rounded-xl border-t border-white/30 bg-gradient-to-b from-amber-400 via-amber-600 to-orange-700 py-4 text-base font-bold uppercase tracking-wide text-white shadow-[0_8px_28px_rgba(245,158,11,0.4),inset_0_1px_0_rgba(255,255,255,0.25)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:max-w-[220px] sm:flex-1"
-                >
-                  Not sure
+                  Cancel
                 </button>
               </div>
 
-              <div className="mx-auto mt-10 max-w-2xl border-t border-white/10" />
+              {/* <div className="mx-auto mt-10 max-w-2xl border-t border-white/10" /> */}
             </div>
           </div>
         </div>
